@@ -107,6 +107,33 @@ case MyApp.BamlClient.ExtractResume.sync_stream(
 end
 ```
 
+### Cancel streaming
+
+All streaming operations return a process ID that can be used to cancel the stream at any time:
+
+```elixir
+# Start a stream (returns {:ok, pid})
+{:ok, stream_pid} = MyApp.BamlClient.ExtractResume.stream(
+  %{resume: "John Doe is the CTO of Acme Inc."},
+  fn result ->
+    case result do
+      {:partial, data} -> IO.inspect(data, label: "Partial")
+      {:done, data} -> IO.inspect(data, label: "Done")
+      {:error, error} -> IO.inspect(error, label: "Error")
+    end
+  end
+)
+
+# Cancel the stream at any time
+BamlElixir.Stream.cancel(stream_pid)
+
+# Or wait for completion with timeout
+case BamlElixir.Stream.await(stream_pid, 5000) do
+  {:ok, :completed} -> IO.puts("Stream completed")
+  {:error, :timeout} -> IO.puts("Stream timed out")
+end
+```
+
 ### Images
 
 Send an image URL:
@@ -255,7 +282,6 @@ If you need to build the NIFs for other targets, you need to clone the repo and 
 
 - Type aliases
 - Dynamic types (WIP, works partially)
-- Stream cancellation
 - Add support for audio, PDF, and video output types
 - Stream metadata exposure (`@stream.done`, `@stream.not_null`, `@stream.with_state`)
 - OnTick callbacks
