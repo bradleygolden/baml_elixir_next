@@ -15,8 +15,18 @@ defmodule BamlElixir.Native do
   def call(_function_name, _args, _path, _collectors, _client_registry, _tb),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def stream(_pid, _reference, _function_name, _args, _path, _collectors, _client_registry, _tb),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def stream(
+        _pid,
+        _reference,
+        _tripwire,
+        _function_name,
+        _args,
+        _path,
+        _collectors,
+        _client_registry,
+        _tb
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
 
   def collector_new(_name), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -25,4 +35,8 @@ defmodule BamlElixir.Native do
   def collector_last_function_log(_collector), do: :erlang.nif_error(:nif_not_loaded)
 
   def parse_baml(_path), do: :erlang.nif_error(:nif_not_loaded)
+
+  def create_tripwire(), do: :erlang.nif_error(:nif_not_loaded)
+
+  def abort_tripwire(_tripwire), do: :erlang.nif_error(:nif_not_loaded)
 end

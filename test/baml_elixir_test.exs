@@ -14,9 +14,10 @@ defmodule BamlElixirTest do
   test "parsing into a struct with streaming" do
     pid = self()
 
-    BamlElixirTest.ExtractPerson.stream(%{info: "John Doe, 28, Engineer"}, fn result ->
-      send(pid, result)
-    end)
+    {:ok, _stream_pid} =
+      BamlElixirTest.ExtractPerson.stream(%{info: "John Doe, 28, Engineer"}, fn result ->
+        send(pid, result)
+      end)
 
     messages = wait_for_all_messages()
 
@@ -203,11 +204,12 @@ defmodule BamlElixirTest do
     collector = BamlElixir.Collector.new("test-collector")
     pid = self()
 
-    BamlElixirTest.CreateEmployee.stream(
-      %{},
-      fn result -> send(pid, result) end,
-      %{llm_client: "GPT4", collectors: [collector]}
-    )
+    {:ok, _stream_pid} =
+      BamlElixirTest.CreateEmployee.stream(
+        %{},
+        fn result -> send(pid, result) end,
+        %{llm_client: "GPT4", collectors: [collector]}
+      )
 
     _messages = wait_for_all_messages()
 
@@ -251,11 +253,12 @@ defmodule BamlElixirTest do
     collector = BamlElixir.Collector.new("test-collector")
     pid = self()
 
-    BamlElixirTest.CreateEmployee.stream(
-      %{},
-      fn result -> send(pid, result) end,
-      %{llm_client: "GPT4", collectors: [collector]}
-    )
+    {:ok, _stream_pid} =
+      BamlElixirTest.CreateEmployee.stream(
+        %{},
+        fn result -> send(pid, result) end,
+        %{llm_client: "GPT4", collectors: [collector]}
+      )
 
     _messages = wait_for_all_messages()
 
@@ -305,6 +308,113 @@ defmodule BamlElixirTest do
                Jane Doe 28 - Guest
                """
              })
+  end
+
+  test "stream returns {:ok, pid}" do
+    {:ok, stream_pid} =
+      BamlElixirTest.ExtractPerson.stream(
+        %{info: "John Doe, 28, Engineer"},
+        fn _ -> :ok end
+      )
+
+    assert is_pid(stream_pid)
+    assert Process.alive?(stream_pid)
+
+    # Wait for stream to complete
+    ref = Process.monitor(stream_pid)
+    assert_receive {:DOWN, ^ref, :process, ^stream_pid, _}, 10_000
+  end
+
+  test "stream without cancellation completes normally" do
+    pid = self()
+
+    {:ok, stream_pid} =
+      BamlElixirTest.ExtractPerson.stream(
+        %{info: "John Doe, 28, Engineer"},
+        fn result -> send(pid, result) end
+      )
+
+    assert is_pid(stream_pid)
+
+    messages = wait_for_all_messages()
+
+    done_messages = Enum.filter(messages, fn {type, _} -> type == :done end)
+    assert length(done_messages) == 1
+
+    assert [{:done, person}] = done_messages
+    assert person.name == "John Doe"
+    assert person.age == 28
+
+    refute Process.alive?(stream_pid)
+  end
+
+  test "cancelling stream via BamlElixir.Stream.cancel/1" do
+    pid = self()
+
+    {:ok, stream_pid} =
+      BamlElixirTest.ExtractPerson.stream(
+        %{info: "John Doe, 28, Engineer"},
+        fn result -> send(pid, result) end
+      )
+
+    # Cancel the stream
+    assert :ok = BamlElixir.Stream.cancel(stream_pid)
+
+    # Wait for process to die
+    ref = Process.monitor(stream_pid)
+    assert_receive {:DOWN, ^ref, :process, ^stream_pid, :cancelled}, 5000
+
+    refute Process.alive?(stream_pid)
+  end
+
+  test "cancelling stream via Process.exit/2" do
+    pid = self()
+
+    {:ok, stream_pid} =
+      BamlElixirTest.ExtractPerson.stream(
+        %{info: "John Doe, 28, Engineer"},
+        fn result -> send(pid, result) end
+      )
+
+    # Cancel via Process.exit
+    Process.exit(stream_pid, :shutdown)
+
+    # Wait a bit for process to die
+    Process.sleep(100)
+    refute Process.alive?(stream_pid)
+  end
+
+  test "BamlElixir.Stream.await/2 waits for completion" do
+    pid = self()
+
+    {:ok, stream_pid} =
+      BamlElixirTest.ExtractPerson.stream(
+        %{info: "John Doe, 28, Engineer"},
+        fn result -> send(pid, result) end
+      )
+
+    assert {:ok, :completed} = BamlElixir.Stream.await(stream_pid, 10_000)
+    refute Process.alive?(stream_pid)
+  end
+
+  test "BamlElixir.Stream.await/2 detects cancellation" do
+    pid = self()
+
+    {:ok, stream_pid} =
+      BamlElixirTest.ExtractPerson.stream(
+        %{info: "John Doe, 28, Engineer"},
+        fn result -> send(pid, result) end
+      )
+
+    # Cancel in a separate process
+    spawn(fn ->
+      Process.sleep(500)
+      BamlElixir.Stream.cancel(stream_pid)
+    end)
+
+    result = BamlElixir.Stream.await(stream_pid, 10_000)
+    assert result in [{:ok, :cancelled}, {:ok, :completed}]
+    refute Process.alive?(stream_pid)
   end
 
   defp wait_for_all_messages(messages \\ []) do

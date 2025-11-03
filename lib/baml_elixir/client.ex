@@ -90,24 +90,45 @@ defmodule BamlElixir.Client do
   @doc """
   Streams a BAML function asynchronously.
 
+  Returns `{:ok, pid}` where the pid represents the streaming process.
+  You can cancel the stream by calling `BamlElixir.Stream.cancel/1` or
+  `Process.exit(pid, :shutdown)`.
+
   ## Parameters
     - `function_name`: The name of the BAML function to stream
     - `args`: A map of arguments to pass to the function
-    - `callback`: A function that will be called with the result of the function
+    - `callback`: A function that will be called with streaming results
     - `opts`: A map of options
-      - `path`: The path to the BAML source file
-      - `collectors`: A list of collectors to use
-      - `llm_client`: The name of the LLM client to use
+      - `:path`: The path to the BAML source file
+      - `:collectors`: A list of collectors to use
+      - `:llm_client`: The name of the LLM client to use
 
+  ## Returns
+
+  `{:ok, pid}` - The PID of the streaming process
+
+  ## Examples
+
+      # Basic usage
+      {:ok, stream_pid} = BamlElixir.Client.stream(
+        "ExtractPerson",
+        %{info: "John Doe, 28"},
+        fn result -> IO.inspect(result) end
+      )
+
+      # Cancel the stream
+      BamlElixir.Stream.cancel(stream_pid)
+
+      # Or use Process.exit directly
+      Process.exit(stream_pid, :shutdown)
+
+      # Wait for completion
+      BamlElixir.Stream.await(stream_pid, 10_000)
   """
+  @spec stream(String.t(), map(), function(), map()) :: {:ok, pid()}
   def stream(function_name, args, callback, opts \\ %{}) do
-    ref = make_ref()
     args = to_map(args)
-
-    spawn_link(fn ->
-      start_sync_stream(self(), ref, function_name, args, opts)
-      handle_stream_result(ref, callback, opts)
-    end)
+    BamlElixir.Stream.start_link(function_name, args, callback, opts)
   end
 
   @doc """
@@ -189,53 +210,6 @@ defmodule BamlElixir.Client do
     end
   end
 
-  defp start_sync_stream(pid, ref, function_name, args, opts) do
-    {path, collectors, client_registry, tb} = prepare_opts(opts)
-
-    spawn_link(fn ->
-      result =
-        BamlElixir.Native.stream(
-          pid,
-          ref,
-          function_name,
-          args,
-          path,
-          collectors,
-          client_registry,
-          tb
-        )
-
-      send(pid, {ref, result})
-    end)
-  end
-
-  defp handle_stream_result(ref, callback, opts) do
-    receive do
-      {^ref, {:partial, result}} ->
-        result =
-          if opts[:parse] != false do
-            parse_result(result, opts[:prefix], opts[:tb])
-          else
-            result
-          end
-
-        callback.({:partial, result})
-        handle_stream_result(ref, callback, opts)
-
-      {^ref, {:error, _} = msg} ->
-        callback.(msg)
-
-      {^ref, {:done, result}} ->
-        result =
-          if opts[:parse] != false do
-            parse_result(result, opts[:prefix], opts[:tb])
-          else
-            result
-          end
-
-        callback.({:done, result})
-    end
-  end
 
   # Every class in the BAML source file is converted to an Elixir module
   # with a `defstruct/1` and a `@type t/0` type.
@@ -319,7 +293,7 @@ defmodule BamlElixir.Client do
                   ({:ok, unquote(return_type) | {:error, String.t()} | :done} -> any()),
                   map()
                 ) ::
-                  Enumerable.t()
+                  {:ok, pid()}
           def stream(args, callback, opts \\ %{}) do
             opts =
               opts
