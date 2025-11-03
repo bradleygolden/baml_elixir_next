@@ -36,7 +36,6 @@ defmodule BamlElixir.Stream do
       :opts,
       :stream_pid,
       :stream_monitor,
-      :stream_ref,
       :result_ref
     ]
   end
@@ -65,6 +64,8 @@ defmodule BamlElixir.Stream do
   """
   @spec start_link(String.t(), map(), function(), map()) :: {:ok, pid()} | {:error, term()}
   def start_link(function_name, args, callback, opts \\ %{}) do
+    # Use GenServer.start/2 (not start_link) to avoid linking to caller
+    # This prevents cascading failures when stream is cancelled
     GenServer.start(__MODULE__, {function_name, args, callback, opts})
   end
 
@@ -139,25 +140,34 @@ defmodule BamlElixir.Stream do
   @impl true
   def handle_continue(:start_stream, state) do
     result_ref = make_ref()
-    stream_ref = make_ref()
+    genserver_pid = self()
 
     # Spawn the streaming work process
+    # This process will call the blocking NIF and handle the stream results
     stream_pid =
       spawn(fn ->
-        start_nif_stream(
-          self(),
-          result_ref,
-          stream_ref,
-          state.tripwire,
-          state.function_name,
-          state.args,
-          state.opts
-        )
+        worker_pid = self()
 
-        handle_stream_results(result_ref, state.callback, state.opts)
+        # Call the blocking NIF - it will send {:partial, ...} messages during execution
+        # and return the final result as {:done, ...} or {:error, ...}
+        final_result =
+          start_nif_stream(
+            worker_pid,
+            result_ref,
+            state.tripwire,
+            state.function_name,
+            state.args,
+            state.opts
+          )
+
+        # Send the final result as a message so handle_stream_results can process it
+        send(worker_pid, {result_ref, final_result})
+
+        # Process all messages (partials and the final result)
+        handle_stream_results(genserver_pid, result_ref, state.callback, state.opts)
       end)
 
-    # Monitor the spawned process instead of linking
+    # Monitor the spawned process to detect completion or crashes
     stream_monitor = Process.monitor(stream_pid)
 
     {:noreply,
@@ -165,7 +175,6 @@ defmodule BamlElixir.Stream do
        state
        | stream_pid: stream_pid,
          stream_monitor: stream_monitor,
-         stream_ref: stream_ref,
          result_ref: result_ref
      }}
   end
@@ -188,6 +197,8 @@ defmodule BamlElixir.Stream do
   @impl true
   def handle_info({:DOWN, ref, :process, pid, reason}, %{stream_pid: pid, stream_monitor: ref} = state) do
     # Stream process died - shut down GenServer
+    # If reason is :normal, the stream completed successfully
+    # Otherwise, it crashed or was killed
     {:stop, reason, state}
   end
 
@@ -213,31 +224,25 @@ defmodule BamlElixir.Stream do
 
   ## Private Functions
 
-  defp start_nif_stream(parent_pid, result_ref, stream_ref, tripwire, function_name, args, opts) do
+  defp start_nif_stream(parent_pid, result_ref, tripwire, function_name, args, opts) do
     {path, collectors, client_registry, tb} = prepare_opts(opts)
 
-    # Spawn an unlinked process to call the blocking NIF
-    # The NIF runs on DirtyIo scheduler but still blocks the calling process
-    # Using spawn/1 instead of spawn_link/1 to avoid cascading failures
-    spawn(fn ->
-      result =
-        BamlElixir.Native.stream(
-          parent_pid,
-          result_ref,
-          tripwire,
-          function_name,
-          args,
-          path,
-          collectors,
-          client_registry,
-          tb
-        )
-
-      send(parent_pid, {stream_ref, result})
-    end)
+    # Call the NIF directly from this process
+    # The NIF runs on DirtyIo scheduler to avoid blocking the main scheduler
+    BamlElixir.Native.stream(
+      parent_pid,
+      result_ref,
+      tripwire,
+      function_name,
+      args,
+      path,
+      collectors,
+      client_registry,
+      tb
+    )
   end
 
-  defp handle_stream_results(ref, callback, opts) do
+  defp handle_stream_results(genserver_pid, ref, callback, opts) do
     receive do
       {^ref, {:partial, result}} ->
         result =
@@ -247,11 +252,29 @@ defmodule BamlElixir.Stream do
             result
           end
 
-        callback.({:partial, result})
-        handle_stream_results(ref, callback, opts)
+        # Wrap callback in try/catch to prevent crashes from propagating
+        try do
+          callback.({:partial, result})
+        rescue
+          error ->
+            # Log error but continue processing
+            require Logger
+            Logger.error("Stream callback error: #{inspect(error)}")
+        end
+
+        handle_stream_results(genserver_pid, ref, callback, opts)
 
       {^ref, {:error, _} = msg} ->
-        callback.(msg)
+        try do
+          callback.(msg)
+        rescue
+          error ->
+            require Logger
+            Logger.error("Stream callback error: #{inspect(error)}")
+        end
+
+        # Worker exits normally after error, GenServer will see :DOWN message
+        :ok
 
       {^ref, {:done, result}} ->
         result =
@@ -261,7 +284,16 @@ defmodule BamlElixir.Stream do
             result
           end
 
-        callback.({:done, result})
+        try do
+          callback.({:done, result})
+        rescue
+          error ->
+            require Logger
+            Logger.error("Stream callback error: #{inspect(error)}")
+        end
+
+        # Worker exits normally after completion, GenServer will see :DOWN message
+        :ok
     end
   end
 
