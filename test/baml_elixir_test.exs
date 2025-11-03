@@ -302,9 +302,8 @@ defmodule BamlElixirTest do
     assert is_pid(stream_pid)
     assert Process.alive?(stream_pid)
 
-    # Wait for stream to complete
     ref = Process.monitor(stream_pid)
-    assert_receive {:DOWN, ^ref, :process, ^stream_pid, _}, 10_000
+    assert_receive {:DOWN, ^ref, :process, ^stream_pid, :normal}, 10_000
   end
 
   test "stream without cancellation completes normally" do
@@ -378,33 +377,22 @@ defmodule BamlElixirTest do
 
   test "BamlElixir.Stream.await/2 detects cancellation" do
     pid = self()
-    parent = self()
 
     {:ok, stream_pid} =
       BamlElixirTest.ExtractPerson.stream(
         %{info: "John Doe, 28, Engineer"},
-        fn
-          {:partial, _} = result ->
-            send(parent, :stream_started)
-            send(pid, result)
-
-          result ->
-            send(pid, result)
-        end
+        fn result -> send(pid, result) end
       )
 
-    spawn(fn ->
-      receive do
-        :stream_started -> :ok
-      after
-        50 -> :ok
-      end
+    # Monitor and cancel before await to test that await handles already-cancelled processes
+    ref = Process.monitor(stream_pid)
+    BamlElixir.Stream.cancel(stream_pid)
+    assert_receive {:DOWN, ^ref, :process, ^stream_pid, :shutdown}, 5000
 
-      BamlElixir.Stream.cancel(stream_pid)
-    end)
-
-    result = BamlElixir.Stream.await(stream_pid, 10_000)
-    assert result in [{:ok, :cancelled}, {:ok, :completed}, {:error, :noproc}]
+    # Now call await on the dead process - it should handle this gracefully
+    # This tests that await works even if called after cancellation
+    result = BamlElixir.Stream.await(stream_pid, 1000)
+    assert {:error, :noproc} = result
     refute Process.alive?(stream_pid)
   end
 
