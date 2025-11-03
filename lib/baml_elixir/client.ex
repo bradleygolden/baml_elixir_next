@@ -211,7 +211,6 @@ defmodule BamlElixir.Client do
     end
   end
 
-
   # Every class in the BAML source file is converted to an Elixir module
   # with a `defstruct/1` and a `@type t/0` type.
   defp generate_class_types(class_types, caller) do

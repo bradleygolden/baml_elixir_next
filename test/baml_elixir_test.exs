@@ -188,7 +188,11 @@ defmodule BamlElixirTest do
   test "get usage from collector" do
     collector = BamlElixir.Collector.new("test-collector")
 
-    assert {:ok, _} = BamlElixirTest.WhichModel.call(%{}, %{llm_client: "LocalQwen3", collectors: [collector]})
+    assert {:ok, _} =
+             BamlElixirTest.WhichModel.call(%{}, %{
+               llm_client: "LocalQwen3",
+               collectors: [collector]
+             })
 
     usage = BamlElixir.Collector.usage(collector)
     assert usage["input_tokens"] > 0
@@ -215,7 +219,11 @@ defmodule BamlElixirTest do
   test "get last function log from collector" do
     collector = BamlElixir.Collector.new("test-collector")
 
-    assert {:ok, _} = BamlElixirTest.WhichModel.call(%{}, %{llm_client: "LocalQwen3", collectors: [collector]})
+    assert {:ok, _} =
+             BamlElixirTest.WhichModel.call(%{}, %{
+               llm_client: "LocalQwen3",
+               collectors: [collector]
+             })
 
     last_function_log = BamlElixir.Collector.last_function_log(collector)
     assert last_function_log["function_name"] == "WhichModel"

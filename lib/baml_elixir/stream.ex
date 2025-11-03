@@ -182,7 +182,10 @@ defmodule BamlElixir.Stream do
   end
 
   @impl true
-  def handle_info({:DOWN, ref, :process, pid, reason}, %{stream_pid: pid, stream_monitor: ref} = state) do
+  def handle_info(
+        {:DOWN, ref, :process, pid, reason},
+        %{stream_pid: pid, stream_monitor: ref} = state
+      ) do
     {:stop, reason, state}
   end
 
