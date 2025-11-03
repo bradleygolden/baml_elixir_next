@@ -327,6 +327,8 @@ defmodule BamlElixirTest do
     assert person.name == "John Doe"
     assert person.age == 28
 
+    # Wait for the stream to complete and verify it terminates
+    assert {:ok, :completed} = BamlElixir.Stream.await(stream_pid, 1000)
     refute Process.alive?(stream_pid)
   end
 
