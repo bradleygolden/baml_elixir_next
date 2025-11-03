@@ -138,18 +138,19 @@ defmodule BamlElixir.Client do
   def sync_stream(function_name, args, callback, opts \\ %{}) do
     pid = self()
 
-    stream(
-      function_name,
-      args,
-      fn
-        {:partial, result} ->
-          callback.(result)
+    {:ok, _stream_pid} =
+      stream(
+        function_name,
+        args,
+        fn
+          {:partial, result} ->
+            callback.(result)
 
-        result ->
-          send(pid, {:done, result})
-      end,
-      opts
-    )
+          result ->
+            send(pid, {:done, result})
+        end,
+        opts
+      )
 
     receive do
       {:done, {:error, error}} ->

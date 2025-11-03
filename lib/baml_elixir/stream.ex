@@ -48,6 +48,11 @@ defmodule BamlElixir.Stream do
 
   Returns `{:ok, pid}` where the pid can be used to cancel the stream.
 
+  Note: Uses `GenServer.start/2` instead of `start_link/2` to avoid linking
+  the stream process to the caller. This prevents the caller from being killed
+  if the stream is cancelled. The stream process is monitored instead for proper
+  cleanup.
+
   ## Parameters
     - `function_name`: The name of the BAML function to stream
     - `args`: A map of arguments to pass to the function
@@ -60,7 +65,7 @@ defmodule BamlElixir.Stream do
   """
   @spec start_link(String.t(), map(), function(), map()) :: {:ok, pid()} | {:error, term()}
   def start_link(function_name, args, callback, opts \\ %{}) do
-    GenServer.start_link(__MODULE__, {function_name, args, callback, opts})
+    GenServer.start(__MODULE__, {function_name, args, callback, opts})
   end
 
   @doc """
@@ -102,7 +107,7 @@ defmodule BamlElixir.Stream do
       {:DOWN, ^ref, :process, ^pid, :normal} ->
         {:ok, :completed}
 
-      {:DOWN, ^ref, :process, ^pid, :cancelled} ->
+      {:DOWN, ^ref, :process, ^pid, :shutdown} ->
         {:ok, :cancelled}
 
       {:DOWN, ^ref, :process, ^pid, reason} ->
@@ -166,7 +171,7 @@ defmodule BamlElixir.Stream do
   end
 
   @impl true
-  def handle_call({:cancel, reason}, _from, state) do
+  def handle_call({:cancel, _reason}, _from, state) do
     # Abort the TripWire to stop the Rust streaming operation
     BamlElixir.Native.abort_tripwire(state.tripwire)
 
@@ -175,8 +180,9 @@ defmodule BamlElixir.Stream do
       Process.demonitor(state.stream_monitor, [:flush])
     end
 
-    # Stop the GenServer with the specified reason
-    {:stop, reason, :ok, state}
+    # Stop the GenServer gracefully with :shutdown reason
+    # Using :shutdown (instead of custom reason) prevents killing the calling process
+    {:stop, :shutdown, :ok, state}
   end
 
   @impl true
