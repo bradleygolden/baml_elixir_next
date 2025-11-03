@@ -326,7 +326,6 @@ defmodule BamlElixirTest do
     assert person.name == "John Doe"
     assert person.age == 28
 
-    # Wait for the stream to complete and verify it terminates
     assert {:ok, :completed} = BamlElixir.Stream.await(stream_pid, 1000)
     refute Process.alive?(stream_pid)
   end
@@ -384,13 +383,10 @@ defmodule BamlElixirTest do
         fn result -> send(pid, result) end
       )
 
-    # Monitor and cancel before await to test that await handles already-cancelled processes
     ref = Process.monitor(stream_pid)
     BamlElixir.Stream.cancel(stream_pid)
     assert_receive {:DOWN, ^ref, :process, ^stream_pid, :shutdown}, 5000
 
-    # Now call await on the dead process - it should handle this gracefully
-    # This tests that await works even if called after cancellation
     result = BamlElixir.Stream.await(stream_pid, 1000)
     assert {:error, :noproc} = result
     refute Process.alive?(stream_pid)

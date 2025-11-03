@@ -64,8 +64,6 @@ defmodule BamlElixir.Stream do
   """
   @spec start_link(String.t(), map(), function(), map()) :: {:ok, pid()} | {:error, term()}
   def start_link(function_name, args, callback, opts \\ %{}) do
-    # Use GenServer.start/2 (not start_link) to avoid linking to caller
-    # This prevents cascading failures when stream is cancelled
     GenServer.start(__MODULE__, {function_name, args, callback, opts})
   end
 
@@ -146,7 +144,6 @@ defmodule BamlElixir.Stream do
       spawn(fn ->
         worker_pid = self()
 
-        # NIF sends {:partial, ...} messages during execution and returns final result
         final_result =
           start_nif_stream(
             worker_pid,
@@ -157,7 +154,6 @@ defmodule BamlElixir.Stream do
             state.opts
           )
 
-        # Send final result as message for uniform handling
         send(worker_pid, {result_ref, final_result})
 
         handle_stream_results(genserver_pid, result_ref, state.callback, state.opts)
@@ -182,7 +178,6 @@ defmodule BamlElixir.Stream do
       Process.demonitor(state.stream_monitor, [:flush])
     end
 
-    # Use :shutdown to prevent killing linked processes
     {:stop, :shutdown, :ok, state}
   end
 
@@ -297,7 +292,6 @@ defmodule BamlElixir.Stream do
   end
 
   defp parse_result(%{:__baml_enum__ => _, :value => value}, _prefix, _tb) do
-    # Use String.to_existing_atom/1 to avoid atom table exhaustion
     try do
       String.to_existing_atom(value)
     rescue
