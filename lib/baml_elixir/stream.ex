@@ -142,14 +142,11 @@ defmodule BamlElixir.Stream do
     result_ref = make_ref()
     genserver_pid = self()
 
-    # Spawn the streaming work process
-    # This process will call the blocking NIF and handle the stream results
     stream_pid =
       spawn(fn ->
         worker_pid = self()
 
-        # Call the blocking NIF - it will send {:partial, ...} messages during execution
-        # and return the final result as {:done, ...} or {:error, ...}
+        # NIF sends {:partial, ...} messages during execution and returns final result
         final_result =
           start_nif_stream(
             worker_pid,
@@ -160,14 +157,12 @@ defmodule BamlElixir.Stream do
             state.opts
           )
 
-        # Send the final result as a message so handle_stream_results can process it
+        # Send final result as message for uniform handling
         send(worker_pid, {result_ref, final_result})
 
-        # Process all messages (partials and the final result)
         handle_stream_results(genserver_pid, result_ref, state.callback, state.opts)
       end)
 
-    # Monitor the spawned process to detect completion or crashes
     stream_monitor = Process.monitor(stream_pid)
 
     {:noreply,
@@ -181,24 +176,18 @@ defmodule BamlElixir.Stream do
 
   @impl true
   def handle_call({:cancel, _reason}, _from, state) do
-    # Abort the TripWire to stop the Rust streaming operation
     BamlElixir.Native.abort_tripwire(state.tripwire)
 
-    # Demonitor the stream process
     if state.stream_monitor do
       Process.demonitor(state.stream_monitor, [:flush])
     end
 
-    # Stop the GenServer gracefully with :shutdown reason
-    # Using :shutdown (instead of custom reason) prevents killing the calling process
+    # Use :shutdown to prevent killing linked processes
     {:stop, :shutdown, :ok, state}
   end
 
   @impl true
   def handle_info({:DOWN, ref, :process, pid, reason}, %{stream_pid: pid, stream_monitor: ref} = state) do
-    # Stream process died - shut down GenServer
-    # If reason is :normal, the stream completed successfully
-    # Otherwise, it crashed or was killed
     {:stop, reason, state}
   end
 
@@ -209,12 +198,10 @@ defmodule BamlElixir.Stream do
 
   @impl true
   def terminate(_reason, state) do
-    # Ensure TripWire is aborted on termination
     if state.tripwire do
       BamlElixir.Native.abort_tripwire(state.tripwire)
     end
 
-    # Demonitor the stream process if still monitored
     if state.stream_monitor do
       Process.demonitor(state.stream_monitor, [:flush])
     end
@@ -227,8 +214,6 @@ defmodule BamlElixir.Stream do
   defp start_nif_stream(parent_pid, result_ref, tripwire, function_name, args, opts) do
     {path, collectors, client_registry, tb} = prepare_opts(opts)
 
-    # Call the NIF directly from this process
-    # The NIF runs on DirtyIo scheduler to avoid blocking the main scheduler
     BamlElixir.Native.stream(
       parent_pid,
       result_ref,
@@ -252,12 +237,10 @@ defmodule BamlElixir.Stream do
             result
           end
 
-        # Wrap callback in try/catch to prevent crashes from propagating
         try do
           callback.({:partial, result})
         rescue
           error ->
-            # Log error but continue processing
             require Logger
             Logger.error("Stream callback error: #{inspect(error)}")
         end
@@ -273,7 +256,6 @@ defmodule BamlElixir.Stream do
             Logger.error("Stream callback error: #{inspect(error)}")
         end
 
-        # Worker exits normally after error, GenServer will see :DOWN message
         :ok
 
       {^ref, {:done, result}} ->
@@ -292,7 +274,6 @@ defmodule BamlElixir.Stream do
             Logger.error("Stream callback error: #{inspect(error)}")
         end
 
-        # Worker exits normally after completion, GenServer will see :DOWN message
         :ok
     end
   end
@@ -316,14 +297,11 @@ defmodule BamlElixir.Stream do
   end
 
   defp parse_result(%{:__baml_enum__ => _, :value => value}, _prefix, _tb) do
-    # Use String.to_existing_atom/1 to avoid exhausting atom table
-    # BAML enums should already be defined at compile time
+    # Use String.to_existing_atom/1 to avoid atom table exhaustion
     try do
       String.to_existing_atom(value)
     rescue
-      ArgumentError ->
-        # Fall back to string if atom doesn't exist
-        value
+      ArgumentError -> value
     end
   end
 

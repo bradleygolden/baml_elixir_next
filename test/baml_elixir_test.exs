@@ -341,13 +341,8 @@ defmodule BamlElixirTest do
         fn result -> send(pid, result) end
       )
 
-    # Monitor the stream process before cancelling
     ref = Process.monitor(stream_pid)
-
-    # Cancel the stream
     assert :ok = BamlElixir.Stream.cancel(stream_pid)
-
-    # Wait for process to die
     assert_receive {:DOWN, ^ref, :process, ^stream_pid, :shutdown}, 5000
 
     refute Process.alive?(stream_pid)
@@ -362,11 +357,8 @@ defmodule BamlElixirTest do
         fn result -> send(pid, result) end
       )
 
-    # Cancel via Process.exit
     ref = Process.monitor(stream_pid)
     Process.exit(stream_pid, :shutdown)
-
-    # Wait for process to die
     assert_receive {:DOWN, ^ref, :process, ^stream_pid, :shutdown}, 1000
     refute Process.alive?(stream_pid)
   end
@@ -393,7 +385,6 @@ defmodule BamlElixirTest do
         %{info: "John Doe, 28, Engineer"},
         fn
           {:partial, _} = result ->
-            # Signal that stream has started
             send(parent, :stream_started)
             send(pid, result)
 
@@ -402,8 +393,6 @@ defmodule BamlElixirTest do
         end
       )
 
-    # Cancel in a separate process after a brief moment to allow stream to start
-    # This tests that await/2 properly detects cancellation
     spawn(fn ->
       receive do
         :stream_started -> :ok
@@ -414,7 +403,6 @@ defmodule BamlElixirTest do
       BamlElixir.Stream.cancel(stream_pid)
     end)
 
-    # Call await first - it will wait and should detect the cancellation
     result = BamlElixir.Stream.await(stream_pid, 10_000)
     assert result in [{:ok, :cancelled}, {:ok, :completed}, {:error, :noproc}]
     refute Process.alive?(stream_pid)
