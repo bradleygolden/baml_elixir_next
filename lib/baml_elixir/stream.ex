@@ -35,6 +35,7 @@ defmodule BamlElixir.Stream do
       :callback,
       :opts,
       :stream_pid,
+      :stream_monitor,
       :stream_ref,
       :result_ref
     ]
@@ -117,7 +118,6 @@ defmodule BamlElixir.Stream do
 
   @impl true
   def init({function_name, args, callback, opts}) do
-    # Create TripWire on GenServer initialization
     tripwire = BamlElixir.Native.create_tripwire()
 
     state = %State{
@@ -128,7 +128,6 @@ defmodule BamlElixir.Stream do
       opts: opts
     }
 
-    # Start streaming immediately
     {:ok, state, {:continue, :start_stream}}
   end
 
@@ -137,9 +136,9 @@ defmodule BamlElixir.Stream do
     result_ref = make_ref()
     stream_ref = make_ref()
 
-    # Spawn the streaming work
+    # Spawn the streaming work process
     stream_pid =
-      spawn_link(fn ->
+      spawn(fn ->
         start_nif_stream(
           self(),
           result_ref,
@@ -153,20 +152,35 @@ defmodule BamlElixir.Stream do
         handle_stream_results(result_ref, state.callback, state.opts)
       end)
 
-    {:noreply, %{state | stream_pid: stream_pid, stream_ref: stream_ref, result_ref: result_ref}}
+    # Monitor the spawned process instead of linking
+    stream_monitor = Process.monitor(stream_pid)
+
+    {:noreply,
+     %{
+       state
+       | stream_pid: stream_pid,
+         stream_monitor: stream_monitor,
+         stream_ref: stream_ref,
+         result_ref: result_ref
+     }}
   end
 
   @impl true
   def handle_call({:cancel, reason}, _from, state) do
-    # Abort the TripWire
+    # Abort the TripWire to stop the Rust streaming operation
     BamlElixir.Native.abort_tripwire(state.tripwire)
+
+    # Demonitor the stream process
+    if state.stream_monitor do
+      Process.demonitor(state.stream_monitor, [:flush])
+    end
 
     # Stop the GenServer with the specified reason
     {:stop, reason, :ok, state}
   end
 
   @impl true
-  def handle_info({:DOWN, _ref, :process, pid, reason}, %{stream_pid: pid} = state) do
+  def handle_info({:DOWN, ref, :process, pid, reason}, %{stream_pid: pid, stream_monitor: ref} = state) do
     # Stream process died - shut down GenServer
     {:stop, reason, state}
   end
@@ -183,17 +197,23 @@ defmodule BamlElixir.Stream do
       BamlElixir.Native.abort_tripwire(state.tripwire)
     end
 
+    # Demonitor the stream process if still monitored
+    if state.stream_monitor do
+      Process.demonitor(state.stream_monitor, [:flush])
+    end
+
     :ok
   end
 
   ## Private Functions
 
-  # Spawns the NIF stream process
   defp start_nif_stream(parent_pid, result_ref, stream_ref, tripwire, function_name, args, opts) do
     {path, collectors, client_registry, tb} = prepare_opts(opts)
 
-    # Spawn a linked process to call the NIF
-    spawn_link(fn ->
+    # Spawn an unlinked process to call the blocking NIF
+    # The NIF runs on DirtyIo scheduler but still blocks the calling process
+    # Using spawn/1 instead of spawn_link/1 to avoid cascading failures
+    spawn(fn ->
       result =
         BamlElixir.Native.stream(
           parent_pid,
@@ -207,12 +227,10 @@ defmodule BamlElixir.Stream do
           tb
         )
 
-      # Send completion signal
       send(parent_pid, {stream_ref, result})
     end)
   end
 
-  # Recursively handles streaming results
   defp handle_stream_results(ref, callback, opts) do
     receive do
       {^ref, {:partial, result}} ->
@@ -241,7 +259,6 @@ defmodule BamlElixir.Stream do
     end
   end
 
-  # Prepares options for the NIF call
   defp prepare_opts(opts) do
     path = opts[:path] || "baml_src"
     collectors = (opts[:collectors] || []) |> Enum.map(fn collector -> collector.reference end)
@@ -249,7 +266,6 @@ defmodule BamlElixir.Stream do
     {path, collectors, client_registry, opts[:tb]}
   end
 
-  # Parse result based on type builder or prefix
   defp parse_result(%{:__baml_class__ => _class_name} = result, prefix, tb)
        when not is_nil(tb) do
     Map.new(result, fn {key, value} -> {key, parse_result(value, prefix, tb)} end)
@@ -262,7 +278,15 @@ defmodule BamlElixir.Stream do
   end
 
   defp parse_result(%{:__baml_enum__ => _, :value => value}, _prefix, _tb) do
-    String.to_atom(value)
+    # Use String.to_existing_atom/1 to avoid exhausting atom table
+    # BAML enums should already be defined at compile time
+    try do
+      String.to_existing_atom(value)
+    rescue
+      ArgumentError ->
+        # Fall back to string if atom doesn't exist
+        value
+    end
   end
 
   defp parse_result(list, prefix, tb) when is_list(list) do

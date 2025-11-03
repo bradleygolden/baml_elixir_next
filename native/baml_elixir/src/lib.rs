@@ -31,9 +31,9 @@ pub struct TripWireResource {
     tripwire: AssertUnwindSafe<stream_cancel::Tripwire>,
 }
 
+unsafe impl Send for TripWireResource {}
+unsafe impl Sync for TripWireResource {}
 impl std::panic::RefUnwindSafe for TripWireResource {}
-
-impl rustler::Resource for TripWireResource {}
 
 fn term_to_string(term: Term) -> Result<String, Error> {
     if term.is_atom() {
@@ -158,6 +158,8 @@ fn baml_value_to_term<'a>(env: Env<'a>, value: &BamlValue) -> NifResult<Term<'a>
     }
 }
 
+// Unused but kept for API consistency
+#[allow(dead_code)]
 #[derive(NifStruct)]
 #[module = "BamlElixir.Client"]
 struct Client<'a> {
@@ -652,4 +654,9 @@ fn abort_tripwire(tripwire_res: ResourceArc<TripWireResource>) -> rustler::Atom 
     atoms::ok()
 }
 
-rustler::init!("Elixir.BamlElixir.Native");
+fn load(env: rustler::Env, _: rustler::Term) -> bool {
+    let _ = rustler::resource!(TripWireResource, env);
+    true
+}
+
+rustler::init!("Elixir.BamlElixir.Native", load = load);
