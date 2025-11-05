@@ -1,39 +1,50 @@
-
-client GPT4 {
-    provider openai
-    options {
-        model gpt-4o-mini
-        api_key env.OPENAI_API_KEY
-    }
-}
-
-client DeepSeekR1 {
-  provider openai-generic
+// Local Ollama client configuration
+// Make sure Ollama is running with: ollama serve
+// Pull the model with: ollama pull qwen3:1.7b
+client<llm> LocalQwen3 {
+  provider "openai-generic"
   options {
-    base_url "https://api.together.ai/v1"
-    api_key env.TOGETHER_API_KEY
-    model "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free"
+    base_url "http://localhost:11434/v1"
+    model "qwen3:1.7b"
   }
 }
 
-client Claude35Sonnet {
-    provider anthropic
-    options {
-        model claude-3-5-sonnet-latest
-        api_key env.ANTHROPIC_API_KEY
-    }
-}
+// Cloud provider clients (commented out - using local model)
+// client GPT4 {
+//     provider openai
+//     options {
+//         model gpt-4o-mini
+//         api_key env.OPENAI_API_KEY
+//     }
+// }
 
-client Gemini25Pro {
-  provider google-ai
-  options {
-    model "gemini-2.5-pro"
-    api_key env.GEMINI_API_KEY
-  }
-}
+// client DeepSeekR1 {
+//   provider openai-generic
+//   options {
+//     base_url "https://api.together.ai/v1"
+//     api_key env.TOGETHER_API_KEY
+//     model "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free"
+//   }
+// }
+
+// client Claude35Sonnet {
+//     provider anthropic
+//     options {
+//         model claude-3-5-sonnet-latest
+//         api_key env.ANTHROPIC_API_KEY
+//     }
+// }
+
+// client Gemini25Pro {
+//   provider google-ai
+//   options {
+//     model "gemini-2.5-pro"
+//     api_key env.GEMINI_API_KEY
+//   }
+// }
 
 function ExtractPerson(info: string) -> Person {
-    client GPT4
+    client LocalQwen3
     prompt #"
         {{ ctx.output_format }}
 
@@ -48,7 +59,7 @@ class Person {
 }
 
 function DescribeImage(myImg: image) -> string {
-  client GPT4
+  client LocalQwen3
   prompt #"
     {{ _.role("user")}}
     Describe the image in four words:
@@ -73,7 +84,7 @@ class NewEmployeeFullyDynamic {
 }
 
 function CreateEmployee() -> NewEmployeeFullyDynamic {
-  client GPT4
+  client LocalQwen3
   prompt #"
     Create a fake employee data with the following information:
     {{ ctx.output_format }}
@@ -81,7 +92,7 @@ function CreateEmployee() -> NewEmployeeFullyDynamic {
 }
 
 function WhichModel() -> Model {
-    client GPT4
+    client LocalQwen3
     prompt #"
         Which model are you?
 
@@ -90,7 +101,7 @@ function WhichModel() -> Model {
 }
 
 function WhichModelUnion() -> "DeepSeek" | "GPT" {
-  client GPT4
+  client LocalQwen3
   prompt #"
     Which model are you?
 
@@ -104,7 +115,7 @@ class DummyOutput {
 }
 
 function DummyOutputFunction() -> DummyOutput {
-  client GPT4
+  client LocalQwen3
   prompt #"
     Say "hello there".
   "#
@@ -116,7 +127,7 @@ class Attendees {
 }
 
 function ParseAttendees(attendees: string) -> Attendees {
-  client GPT4
+  client LocalQwen3
   prompt #"
     {{ ctx.output_format }}
 
@@ -126,7 +137,7 @@ function ParseAttendees(attendees: string) -> Attendees {
 }
 
 function FlipSwitch(switch: bool) -> bool {
-  client GPT4
+  client LocalQwen3
   prompt #"
     Flip the switch:
     {{ switch }}

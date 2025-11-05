@@ -307,6 +307,76 @@ defmodule BamlElixirTest do
              })
   end
 
+  describe "stream cancellation on process death" do
+    test "cancels stream when caller process dies early" do
+      test_pid = self()
+
+      caller_pid =
+        spawn_link(fn ->
+          BamlElixirTest.ExtractPerson.stream(
+            %{info: "Generate a very long response that takes time..."},
+            fn result ->
+              send(test_pid, {:stream_event, result})
+            end
+          )
+
+          receive do
+            :die_now -> :ok
+          end
+        end)
+
+      assert_receive {:stream_event, {:partial, _}}, 5000
+      send(caller_pid, :die_now)
+      ref = Process.monitor(caller_pid)
+      assert_receive {:DOWN, ^ref, :process, ^caller_pid, :normal}, 2000
+      refute_receive {:stream_event, {:done, _}}, 1000
+    end
+
+    test "stream completes normally when caller stays alive" do
+      test_pid = self()
+
+      caller_pid =
+        spawn_link(fn ->
+          BamlElixirTest.ExtractPerson.stream(
+            %{info: "John Doe, age 30"},
+            fn result ->
+              send(test_pid, {:stream_event, result})
+            end
+          )
+
+          receive do
+            :shutdown -> :ok
+          end
+        end)
+
+      assert_receive {:stream_event, {:partial, _}}, 5000
+      assert_receive {:stream_event, {:done, _}}, 10000
+      send(caller_pid, :shutdown)
+    end
+
+    test "explicit cancellation via Process.exit" do
+      test_pid = self()
+
+      caller_pid =
+        spawn(fn ->
+          BamlElixirTest.ExtractPerson.stream(
+            %{info: "Generate long response..."},
+            fn result ->
+              send(test_pid, {:explicit_cancel, result})
+            end
+          )
+
+          receive do
+            :never -> :ok
+          end
+        end)
+
+      assert_receive {:explicit_cancel, {:partial, _}}, 5000
+      Process.exit(caller_pid, :shutdown)
+      refute_receive {:explicit_cancel, {:done, _}}, 1000
+    end
+  end
+
   defp wait_for_all_messages(messages \\ []) do
     receive do
       {:partial, _} = message ->
