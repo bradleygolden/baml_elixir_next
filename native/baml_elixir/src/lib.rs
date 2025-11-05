@@ -5,23 +5,35 @@ use baml_runtime::{BamlRuntime, FunctionResult, RuntimeContextManager, TripWire}
 use baml_types::ir_type::UnionTypeViewGeneric;
 use baml_types::{BamlMap, BamlValue, LiteralValue, TypeIR};
 use rustler::types::atom;
+use stream_cancel::Trigger;
 
 use collector::{FunctionLog, Usage};
 use rustler::{
     Encoder, Env, Error, LocalPid, MapIterator, NifResult, NifStruct, ResourceArc, Term,
 };
 use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 mod atoms {
     rustler::atoms! {
         partial,
         done,
+        ok,
     }
 }
 
 mod collector;
 mod type_builder;
+
+pub struct TripWireResource {
+    trigger: Mutex<Option<Trigger>>,
+    tripwire: AssertUnwindSafe<stream_cancel::Tripwire>,
+}
+
+unsafe impl Send for TripWireResource {}
+unsafe impl Sync for TripWireResource {}
+impl std::panic::RefUnwindSafe for TripWireResource {}
 
 fn term_to_string(term: Term) -> Result<String, Error> {
     if term.is_atom() {
@@ -146,6 +158,7 @@ fn baml_value_to_term<'a>(env: Env<'a>, value: &BamlValue) -> NifResult<Term<'a>
     }
 }
 
+#[allow(dead_code)]
 #[derive(NifStruct)]
 #[module = "BamlElixir.Client"]
 struct Client<'a> {
@@ -310,6 +323,7 @@ fn stream<'a>(
     env: Env<'a>,
     pid: Term<'a>,
     reference: Term<'a>,
+    tripwire_resource: Option<ResourceArc<TripWireResource>>,
     function_name: String,
     arguments: Term<'a>,
     path: String,
@@ -337,6 +351,10 @@ fn stream<'a>(
         }
     };
 
+    let tripwire = tripwire_resource
+        .map(|res| TripWire::new(Some(res.tripwire.0.clone())))
+        .unwrap_or_else(|| TripWire::new(None));
+
     let result = runtime.stream_function(
         function_name,
         &params,
@@ -345,7 +363,7 @@ fn stream<'a>(
         client_registry.as_ref(),
         collectors,
         std::env::vars().collect(),
-        TripWire::new(None), // TODO: Add tripwire
+        tripwire,
     );
 
     match result {
@@ -616,4 +634,28 @@ fn to_elixir_type<'a>(env: Env<'a>, field_type: &TypeIR) -> Term<'a> {
     }
 }
 
-rustler::init!("Elixir.BamlElixir.Native");
+#[rustler::nif]
+fn create_tripwire() -> ResourceArc<TripWireResource> {
+    let (trigger, tripwire) = stream_cancel::Tripwire::new();
+    ResourceArc::new(TripWireResource {
+        trigger: Mutex::new(Some(trigger)),
+        tripwire: AssertUnwindSafe(tripwire),
+    })
+}
+
+#[rustler::nif]
+fn abort_tripwire(tripwire_res: ResourceArc<TripWireResource>) -> rustler::Atom {
+    if let Ok(mut guard) = tripwire_res.trigger.lock() {
+        if let Some(trigger) = guard.take() {
+            trigger.cancel();
+        }
+    }
+    atoms::ok()
+}
+
+fn load(env: rustler::Env, _: rustler::Term) -> bool {
+    let _ = rustler::resource!(TripWireResource, env);
+    true
+}
+
+rustler::init!("Elixir.BamlElixir.Native", load = load);
