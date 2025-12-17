@@ -10,6 +10,7 @@ defmodule BamlElixir.MixProject do
       version: @version,
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       package: package()
     ]
@@ -23,10 +24,14 @@ defmodule BamlElixir.MixProject do
   end
 
   # Run "mix help deps" to learn about dependencies.
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   defp deps do
     [
       {:rustler, "~> 0.36.1", optional: true},
       {:rustler_precompiled, "~> 0.8"},
+      {:mox, "~> 1.1", only: :test},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end

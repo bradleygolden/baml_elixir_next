@@ -1,4 +1,4 @@
-use baml_runtime::client_registry::ClientRegistry;
+use baml_runtime::client_registry::{ClientProperty, ClientProvider, ClientRegistry};
 use baml_runtime::tracingv2::storage::storage::Collector;
 use baml_runtime::type_builder::TypeBuilder;
 use baml_runtime::{BamlRuntime, FunctionResult, RuntimeContextManager, TripWire};
@@ -12,6 +12,7 @@ use rustler::{
 };
 use std::collections::HashMap;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 mod atoms {
     rustler::atoms! {
@@ -81,6 +82,73 @@ fn term_to_baml_value<'a>(term: Term<'a>) -> Result<BamlValue, Error> {
         "Unsupported type: {:?}",
         term
     ))))
+}
+
+fn term_to_optional_string(term: Term) -> Result<Option<String>, Error> {
+    if term.is_atom() && term.decode::<rustler::Atom>()? == atom::nil() {
+        Ok(None)
+    } else {
+        Ok(Some(term_to_string(term)?))
+    }
+}
+
+fn term_to_baml_map(term: Term) -> Result<BamlMap<String, BamlValue>, Error> {
+    if term.is_atom() && term.decode::<rustler::Atom>()? == atom::nil() {
+        return Ok(BamlMap::new());
+    }
+    if !term.is_map() {
+        return Err(Error::Term(Box::new("Expected a map")));
+    }
+    let mut map = BamlMap::new();
+    for (key_term, value_term) in
+        MapIterator::new(term).ok_or(Error::Term(Box::new("Invalid map")))?
+    {
+        let key = term_to_string(key_term)?;
+        let value = term_to_baml_value(value_term)?;
+        map.insert(key, value);
+    }
+    Ok(map)
+}
+
+fn term_to_client_property(term: Term, name_override: Option<String>) -> Result<ClientProperty, Error> {
+    if !term.is_map() {
+        return Err(Error::Term(Box::new("Client must be a map")));
+    }
+
+    let mut name: Option<String> = name_override;
+    let mut provider: Option<ClientProvider> = None;
+    let mut retry_policy: Option<String> = None;
+    let mut options: BamlMap<String, BamlValue> = BamlMap::new();
+
+    let iter = MapIterator::new(term).ok_or(Error::Term(Box::new("Invalid client map")))?;
+    for (key_term, value_term) in iter {
+        let key = term_to_string(key_term)?;
+        match key.as_str() {
+            "name" => {
+                name = Some(term_to_string(value_term)?);
+            }
+            "provider" => {
+                let provider_str = term_to_string(value_term)?;
+                provider = Some(
+                    ClientProvider::from_str(&provider_str).map_err(|e| {
+                        Error::Term(Box::new(format!("Invalid client provider: {e}")))
+                    })?,
+                );
+            }
+            "retry_policy" => {
+                retry_policy = term_to_optional_string(value_term)?;
+            }
+            "options" => {
+                options = term_to_baml_map(value_term)?;
+            }
+            _ => {}
+        }
+    }
+
+    let name = name.ok_or(Error::Term(Box::new("Client missing required key: name")))?;
+    let provider = provider.ok_or(Error::Term(Box::new("Client missing required key: provider")))?;
+
+    Ok(ClientProperty::new(name, provider, retry_policy, options))
 }
 
 fn baml_value_to_term<'a>(env: Env<'a>, value: &BamlValue) -> NifResult<Term<'a>> {
@@ -218,6 +286,32 @@ fn prepare_request<'a>(
                 if key == "primary" {
                     let primary = term_to_string(value_term)?;
                     registry.set_primary(primary);
+                } else if key == "clients" {
+                    // Accept either:
+                    // - a list of client maps: [%{name: ..., provider: ..., ...}, ...]
+                    // - a map of name => client map: %{ "name" => %{provider: ..., ...}, ... }
+                    if let Ok(list) = value_term.decode::<Vec<Term>>() {
+                        for client_term in list {
+                            let client = term_to_client_property(client_term, None)?;
+                            registry.add_client(client);
+                        }
+                    } else if value_term.is_map() {
+                        let client_iter = MapIterator::new(value_term)
+                            .ok_or(Error::Term(Box::new("Invalid clients map")))?;
+                        for (name_term, client_term) in client_iter {
+                            let name = term_to_string(name_term)?;
+                            let client = term_to_client_property(client_term, Some(name))?;
+                            registry.add_client(client);
+                        }
+                    } else if value_term.is_atom()
+                        && value_term.decode::<rustler::Atom>()? == atom::nil()
+                    {
+                        // allow nil clients
+                    } else {
+                        return Err(Error::Term(Box::new(
+                            "Client registry clients must be a list, a map, or nil",
+                        )));
+                    }
                 }
             }
             Some(registry)
