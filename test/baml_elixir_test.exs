@@ -2,9 +2,112 @@ defmodule BamlElixirTest do
   use ExUnit.Case
   use BamlElixir.Client, path: "test/baml_src"
 
+  import Mox
+
   alias BamlElixir.TypeBuilder
 
   doctest BamlElixir
+
+  setup :set_mox_from_context
+  setup :verify_on_exit!
+
+  @tag :client_registry
+  test "client_registry supports clients key (list form)" do
+    client_registry = %{
+      primary: "InjectedClient",
+      clients: [
+        %{
+          name: "InjectedClient",
+          provider: "definitely-not-a-provider",
+          retry_policy: nil,
+          options: %{model: "gpt-4o-mini"}
+        }
+      ]
+    }
+
+    # parse: false to avoid any parsing work; we want to exercise registry decoding/validation
+    assert {:error, msg} =
+             BamlElixirTest.WhichModel.call(%{}, %{client_registry: client_registry, parse: false})
+
+    assert msg =~ "Invalid client provider"
+  end
+
+  @tag :client_registry
+  test "client_registry supports clients key (map form)" do
+    client_registry = %{
+      primary: "InjectedClient",
+      clients: %{
+        "InjectedClient" => %{
+          provider: "definitely-not-a-provider",
+          retry_policy: nil,
+          options: %{model: "gpt-4o-mini"}
+        }
+      }
+    }
+
+    assert {:error, msg} =
+             BamlElixirTest.WhichModel.call(%{}, %{client_registry: client_registry, parse: false})
+
+    assert msg =~ "Invalid client provider"
+  end
+
+  @tag :client_registry
+  test "client_registry can inject and select a client not present in the BAML files (success path)" do
+    BamlElixirTest.FakeOpenAIServer.expect_chat_completion("GPT")
+    base_url = BamlElixirTest.FakeOpenAIServer.start_base_url()
+
+    client_registry = %{
+      primary: "InjectedClient",
+      clients: [
+        %{
+          name: "InjectedClient",
+          provider: "openai-generic",
+          retry_policy: nil,
+          options: %{
+            base_url: base_url,
+            api_key: "test-key",
+            model: "gpt-4o-mini"
+          }
+        }
+      ]
+    }
+
+    # This function declares `client GPT4` in the .baml file, so success here proves
+    # `client_registry.primary` overrides the static client selection.
+    assert {:ok, "GPT"} =
+             BamlElixirTest.WhichModelUnion.call(%{}, %{client_registry: client_registry})
+  end
+
+  @tag :client_registry
+  test "client_registry passes clients[].options.headers into the HTTP request" do
+    BamlElixirTest.FakeOpenAIServer.expect_chat_completion("GPT", %{
+      "x-test-header" => "hello-from-elixir"
+    })
+
+    base_url = BamlElixirTest.FakeOpenAIServer.start_base_url()
+
+    client_registry = %{
+      primary: "InjectedClient",
+      clients: [
+        %{
+          name: "InjectedClient",
+          provider: "openai-generic",
+          retry_policy: nil,
+          options: %{
+            base_url: base_url,
+            api_key: "test-key",
+            model: "gpt-4o-mini",
+            headers: %{
+              "x-test-header" => "hello-from-elixir"
+            }
+          }
+        }
+      ]
+    }
+
+    assert {:ok, "GPT"} =
+             BamlElixirTest.WhichModelUnion.call(%{}, %{client_registry: client_registry})
+  end
 
   test "parses into a struct" do
     assert {:ok, %BamlElixirTest.Person{name: "John Doe", age: 28}} =
