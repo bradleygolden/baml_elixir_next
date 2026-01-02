@@ -103,9 +103,26 @@ defmodule BamlElixir.Client do
   def stream(function_name, args, callback, opts \\ %{}) do
     ref = make_ref()
     args = to_map(args)
+    caller_pid = self()
 
     spawn_link(fn ->
-      start_sync_stream(self(), ref, function_name, args, opts)
+      tripwire = BamlElixir.Native.create_tripwire()
+      stream_worker = self()
+
+      spawn(fn ->
+        caller_ref = Process.monitor(caller_pid)
+        stream_ref = Process.monitor(stream_worker)
+
+        receive do
+          {:DOWN, ^caller_ref, :process, ^caller_pid, _reason} ->
+            BamlElixir.Native.abort_tripwire(tripwire)
+
+          {:DOWN, ^stream_ref, :process, ^stream_worker, _} ->
+            :ok
+        end
+      end)
+
+      start_sync_stream(self(), ref, function_name, args, tripwire, opts)
       handle_stream_result(ref, callback, opts)
     end)
   end
@@ -189,7 +206,7 @@ defmodule BamlElixir.Client do
     end
   end
 
-  defp start_sync_stream(pid, ref, function_name, args, opts) do
+  defp start_sync_stream(pid, ref, function_name, args, tripwire, opts) do
     {path, collectors, client_registry, tb} = prepare_opts(opts)
 
     spawn_link(fn ->
@@ -197,6 +214,7 @@ defmodule BamlElixir.Client do
         BamlElixir.Native.stream(
           pid,
           ref,
+          tripwire,
           function_name,
           args,
           path,

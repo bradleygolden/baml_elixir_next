@@ -1069,6 +1069,7 @@ dependencies = [
  "baml-types",
  "internal-baml-core",
  "rustler",
+ "stream-cancel",
 ]
 
 [[package]]
