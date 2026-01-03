@@ -75,7 +75,7 @@ defmodule BamlElixir.Client do
     args = to_map(args)
 
     with {:ok, result} <-
-           BamlElixir.Native.call(function_name, args, path, collectors, client_registry, tb) do
+           native_module().call(function_name, args, path, collectors, client_registry, tb) do
       result =
         if opts[:parse] != false do
           parse_result(result, opts[:prefix], tb)
@@ -105,8 +105,10 @@ defmodule BamlElixir.Client do
     args = to_map(args)
     caller_pid = self()
 
+    native = native_module()
+
     spawn_link(fn ->
-      tripwire = BamlElixir.Native.create_tripwire()
+      tripwire = native.create_tripwire()
       stream_worker = self()
 
       spawn(fn ->
@@ -115,7 +117,7 @@ defmodule BamlElixir.Client do
 
         receive do
           {:DOWN, ^caller_ref, :process, ^caller_pid, _reason} ->
-            BamlElixir.Native.abort_tripwire(tripwire)
+            native.abort_tripwire(tripwire)
 
           {:DOWN, ^stream_ref, :process, ^stream_worker, _} ->
             :ok
@@ -166,6 +168,10 @@ defmodule BamlElixir.Client do
     end
   end
 
+  defp native_module do
+    Application.get_env(:baml_elixir, :native_module, BamlElixir.NativeWrapper)
+  end
+
   # Get all .baml files in the specified directory
   def get_baml_files(baml_src_path) do
     if File.exists?(baml_src_path) and File.dir?(baml_src_path) do
@@ -211,7 +217,7 @@ defmodule BamlElixir.Client do
 
     spawn_link(fn ->
       result =
-        BamlElixir.Native.stream(
+        native_module().stream(
           pid,
           ref,
           tripwire,
