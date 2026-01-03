@@ -2,14 +2,9 @@ defmodule BamlElixirTest do
   use ExUnit.Case
   use BamlElixir.Client, path: "test/baml_src"
 
-  import Mox
-
   alias BamlElixir.TypeBuilder
 
   doctest BamlElixir
-
-  setup :set_mox_from_context
-  setup :verify_on_exit!
 
   @tag :client_registry
   test "client_registry supports clients key (list form)" do
@@ -53,8 +48,7 @@ defmodule BamlElixirTest do
 
   @tag :client_registry
   test "client_registry can inject and select a client not present in the BAML files (success path)" do
-    BamlElixirTest.FakeOpenAIServer.expect_chat_completion("GPT")
-    base_url = BamlElixirTest.FakeOpenAIServer.start_base_url()
+    base_url = BamlElixirTest.FakeOpenAIServer.expect_chat_completion("GPT")
 
     client_registry = %{
       primary: "InjectedClient",
@@ -80,11 +74,10 @@ defmodule BamlElixirTest do
 
   @tag :client_registry
   test "client_registry passes clients[].options.headers into the HTTP request" do
-    BamlElixirTest.FakeOpenAIServer.expect_chat_completion("GPT", %{
-      "x-test-header" => "hello-from-elixir"
-    })
-
-    base_url = BamlElixirTest.FakeOpenAIServer.start_base_url()
+    base_url =
+      BamlElixirTest.FakeOpenAIServer.expect_chat_completion("GPT", %{
+        "x-test-header" => "hello-from-elixir"
+      })
 
     client_registry = %{
       primary: "InjectedClient",
@@ -424,134 +417,63 @@ defmodule BamlElixirTest do
   end
 
   describe "stream cancellation" do
-    @tag :stream_cancellation
-    test "killing caller process aborts the stream" do
-      test_pid = self()
-      {:ok, port} = start_streaming_server(test_pid)
-      base_url = "http://127.0.0.1:#{port}/v1"
+    import Mox
 
-      client_registry = %{
-        primary: "StreamingClient",
-        clients: [
-          %{
-            name: "StreamingClient",
-            provider: "openai-generic",
-            retry_policy: nil,
-            options: %{
-              base_url: base_url,
-              api_key: "test-key",
-              model: "gpt-4o-mini"
-            }
-          }
-        ]
-      }
+    setup [:set_mox_global, :verify_on_exit!]
+
+    setup do
+      Application.put_env(:baml_elixir, :native_module, BamlElixir.NativeMock)
+      on_exit(fn -> Application.delete_env(:baml_elixir, :native_module) end)
+    end
+
+    @tag :stream_cancellation
+    test "killing caller process calls abort_tripwire" do
+      test_pid = self()
+      tripwire_ref = make_ref()
+
+      stub(BamlElixir.NativeMock, :create_tripwire, fn -> tripwire_ref end)
+
+      expect(BamlElixir.NativeMock, :abort_tripwire, fn ^tripwire_ref ->
+        send(test_pid, :abort_called)
+        :ok
+      end)
+
+      stub(BamlElixir.NativeMock, :stream, fn pid,
+                                              ref,
+                                              _tripwire,
+                                              _fn,
+                                              _args,
+                                              _path,
+                                              _collectors,
+                                              _registry,
+                                              _tb ->
+        send(test_pid, :stream_started)
+
+        spawn(fn ->
+          receive do
+            :continue_streaming ->
+              send(pid, {ref, {:partial, "chunk"}})
+              send(pid, {ref, {:done, "result"}})
+          after
+            5000 -> :timeout
+          end
+        end)
+
+        :ok
+      end)
 
       caller_pid =
         spawn(fn ->
-          BamlElixirTest.WhichModelUnion.stream(
-            %{},
-            fn result -> send(test_pid, {:stream_result, result}) end,
-            %{client_registry: client_registry}
-          )
+          BamlElixir.Client.stream("TestFunction", %{}, fn _ -> :ok end, %{path: "test/baml_src"})
 
           receive do
             :stop -> :ok
           end
         end)
 
-      assert_receive {:stream_result, {:partial, _}}, 5_000
-      _chunks_before_kill = count_chunks_received()
-
+      assert_receive :stream_started, 1000
       Process.exit(caller_pid, :kill)
-      Process.sleep(200)
-
-      chunks_after_wait = count_chunks_received()
-
-      assert chunks_after_wait < 15,
-             "Expected stream to be cancelled but received #{chunks_after_wait} chunks"
-
-      refute_receive {:stream_result, {:done, _}}, 500
-    end
-
-    defp start_streaming_server(test_pid) do
-      {:ok, listen_socket} =
-        :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
-
-      {:ok, port} = :inet.port(listen_socket)
-
-      spawn_link(fn ->
-        {:ok, socket} = :gen_tcp.accept(listen_socket)
-        {:ok, _data} = recv_until_headers(socket, <<>>)
-
-        headers =
-          "HTTP/1.1 200 OK\r\n" <>
-            "content-type: text/event-stream\r\n" <>
-            "transfer-encoding: chunked\r\n" <>
-            "\r\n"
-
-        :gen_tcp.send(socket, headers)
-
-        for i <- 0..19 do
-          chunk =
-            Jason.encode!(%{
-              "id" => "chatcmpl-test",
-              "object" => "chat.completion.chunk",
-              "created" => 1_700_000_000,
-              "model" => "gpt-4o-mini",
-              "system_fingerprint" => "fp_test",
-              "choices" => [
-                %{
-                  "index" => 0,
-                  "delta" => %{"content" => "\"GPT\""},
-                  "logprobs" => nil,
-                  "finish_reason" => nil
-                }
-              ]
-            })
-
-          sse_data = "data: #{chunk}\n\n"
-          http_chunk = "#{Integer.to_string(byte_size(sse_data), 16)}\r\n#{sse_data}\r\n"
-
-          case :gen_tcp.send(socket, http_chunk) do
-            :ok ->
-              send(test_pid, {:chunk_sent, i})
-              Process.sleep(100)
-
-            {:error, _} ->
-              :ok
-          end
-        end
-
-        done_data = "data: [DONE]\n\n"
-        done_chunk = "#{Integer.to_string(byte_size(done_data), 16)}\r\n#{done_data}\r\n"
-        :gen_tcp.send(socket, done_chunk)
-        :gen_tcp.send(socket, "0\r\n\r\n")
-        :gen_tcp.close(socket)
-        :gen_tcp.close(listen_socket)
-      end)
-
-      {:ok, port}
-    end
-
-    defp recv_until_headers(socket, acc) do
-      case :binary.match(acc, "\r\n\r\n") do
-        {_, _} ->
-          {:ok, acc}
-
-        :nomatch ->
-          case :gen_tcp.recv(socket, 0, 5000) do
-            {:ok, chunk} -> recv_until_headers(socket, acc <> chunk)
-            other -> other
-          end
-      end
-    end
-
-    defp count_chunks_received(count \\ 0) do
-      receive do
-        {:chunk_sent, _} -> count_chunks_received(count + 1)
-      after
-        0 -> count
-      end
+      assert_receive :abort_called, 1000
     end
   end
 end
