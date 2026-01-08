@@ -14,8 +14,8 @@ A preview channel for BAML Elixir bindings, following the "VS Code Insiders" mod
 
 | Feature | Upstream | Next |
 |---------|----------|------|
-| Client Registry | Merged, unreleased | Unreleased |
-| Stream cancellation | Pending upstream | Unreleased |
+| Client Registry | [Merged, unreleased](https://github.com/emilsoman/baml_elixir/pull/8) | [Unreleased](https://github.com/bradleygolden/baml_elixir_next/commit/51fdb81) |
+| Stream cancellation | [Pending](https://github.com/emilsoman/baml_elixir/pull/9) | [Unreleased](https://github.com/bradleygolden/baml_elixir_next/compare/51fdb81...6ccda84) |
 
 ## Can this be used in production?
 
