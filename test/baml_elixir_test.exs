@@ -102,11 +102,13 @@ defmodule BamlElixirTest do
              BamlElixirTest.WhichModelUnion.call(%{}, %{client_registry: client_registry})
   end
 
+  @tag :integration
   test "parses into a struct" do
     assert {:ok, %BamlElixirTest.Person{name: "John Doe", age: 28}} =
              BamlElixirTest.ExtractPerson.call(%{info: "John Doe, 28, Engineer"})
   end
 
+  @tag :integration
   test "parsing into a struct with streaming" do
     pid = self()
 
@@ -124,6 +126,7 @@ defmodule BamlElixirTest do
            ]
   end
 
+  @tag :integration
   test "parsing into a struct with sync_stream" do
     {:ok, agent_pid} = Agent.start_link(fn -> 0 end, name: :counter)
 
@@ -138,10 +141,12 @@ defmodule BamlElixirTest do
     assert Agent.get(agent_pid, fn count -> count end) > 1
   end
 
+  @tag :integration
   test "bool input and output" do
     assert {:ok, true} = BamlElixirTest.FlipSwitch.call(%{switch: false})
   end
 
+  @tag :integration
   test "parses into a struct with a type builder" do
     assert {:ok,
             %{
@@ -199,6 +204,7 @@ defmodule BamlElixirTest do
              })
   end
 
+  @tag :integration
   test "parses type builder with nested types" do
     assert {:ok,
             %{
@@ -268,11 +274,13 @@ defmodule BamlElixirTest do
     assert Enum.all?(work_exp_map, fn {key, value} -> is_binary(key) and is_binary(value) end)
   end
 
+  @tag :integration
   test "change default model" do
     assert BamlElixirTest.WhichModel.call(%{}, %{llm_client: "GPT4"}) == {:ok, :GPT4oMini}
     assert BamlElixirTest.WhichModel.call(%{}, %{llm_client: "DeepSeekR1"}) == {:ok, :DeepSeekR1}
   end
 
+  @tag :integration
   test "get union type" do
     assert BamlElixirTest.WhichModelUnion.call(%{}, %{llm_client: "GPT4"}) == {:ok, "GPT"}
 
@@ -280,10 +288,12 @@ defmodule BamlElixirTest do
              {:ok, "DeepSeek"}
   end
 
+  @tag :integration
   test "Error when parsing the output of a function" do
     assert {:error, "Failed to coerce value" <> _} = BamlElixirTest.DummyOutputFunction.call(%{})
   end
 
+  @tag :integration
   test "get usage from collector" do
     collector = BamlElixir.Collector.new("test-collector")
 
@@ -295,6 +305,7 @@ defmodule BamlElixirTest do
     assert usage["output_tokens"] > 0
   end
 
+  @tag :integration
   test "get usage from collector with streaming using GPT4" do
     collector = BamlElixir.Collector.new("test-collector")
     pid = self()
@@ -311,6 +322,7 @@ defmodule BamlElixirTest do
     assert usage["input_tokens"] == 32
   end
 
+  @tag :integration
   test "get last function log from collector" do
     collector = BamlElixir.Collector.new("test-collector")
 
@@ -343,6 +355,7 @@ defmodule BamlElixirTest do
            ]
   end
 
+  @tag :integration
   test "get last function log from collector with streaming" do
     collector = BamlElixir.Collector.new("test-collector")
     pid = self()
@@ -378,6 +391,7 @@ defmodule BamlElixirTest do
            ]
   end
 
+  @tag :integration
   test "parsing of nested structs" do
     attendees = %BamlElixirTest.Attendees{
       hosts: [
