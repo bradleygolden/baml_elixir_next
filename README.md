@@ -14,8 +14,8 @@ A preview channel for BAML Elixir bindings, following the "VS Code Insiders" mod
 
 | Feature | Upstream | Next |
 |---------|----------|------|
-| Client Registry | [Merged, unreleased](https://github.com/emilsoman/baml_elixir/pull/8) | [Unreleased](https://github.com/bradleygolden/baml_elixir_next/commit/51fdb81) |
-| Stream cancellation | [Pending](https://github.com/emilsoman/baml_elixir/pull/9) | [Unreleased](https://github.com/bradleygolden/baml_elixir_next/compare/51fdb81...6ccda84) |
+| Client Registry | [Merged, unreleased](https://github.com/emilsoman/baml_elixir/pull/8) | [v1.0.0-pre.23.next.1](https://github.com/bradleygolden/baml_elixir_next/releases/tag/v1.0.0-pre.23.next.1) |
+| Stream cancellation | [Pending](https://github.com/emilsoman/baml_elixir/pull/9) | [v1.0.0-pre.23.next.1](https://github.com/bradleygolden/baml_elixir_next/releases/tag/v1.0.0-pre.23.next.1) |
 
 ## Can this be used in production?
 
@@ -270,7 +270,6 @@ If you need to build the NIFs for other targets, you need to clone the repo and 
 
 - Type aliases
 - Dynamic types (WIP, works partially)
-- Stream cancellation
 - Add support for audio, PDF, and video output types
 - Stream metadata exposure (`@stream.done`, `@stream.not_null`, `@stream.with_state`)
 - OnTick callbacks
