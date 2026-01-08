@@ -452,7 +452,18 @@ defmodule BamlElixir.Client do
   defp prepare_opts(opts) do
     path = opts[:path] || "baml_src"
     collectors = (opts[:collectors] || []) |> Enum.map(fn collector -> collector.reference end)
-    client_registry = opts[:llm_client] && %{primary: opts[:llm_client]}
+
+    client_registry =
+      if opts[:client_registry] do
+        opts[:client_registry]
+      else
+        if opts[:llm_client] do
+          %{primary: opts[:llm_client]}
+        else
+          nil
+        end
+      end
+
     {path, collectors, client_registry, opts[:tb]}
   end
 

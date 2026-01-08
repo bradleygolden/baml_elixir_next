@@ -255,6 +255,12 @@ If you need to build the NIFs for other targets, you need to clone the repo and 
 
 - Type aliases
 - Dynamic types (WIP, works partially)
+- Stream cancellation
+- Add support for audio, PDF, and video output types
+- Stream metadata exposure (`@stream.done`, `@stream.not_null`, `@stream.with_state`)
+- OnTick callbacks
+- Structured error types (replace `{:error, String.t()}` with structured error types like `BamlValidationError`)
+- Runtime strategy configuration via Elixir
 
 ### Development
 
