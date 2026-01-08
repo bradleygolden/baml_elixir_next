@@ -32,3 +32,6 @@ target/
 baml_client/
 baml_client.tmp
 /priv
+
+# Local mise config (not committed)
+mise.local.toml

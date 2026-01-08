@@ -1,12 +1,25 @@
-# BamlElixir
+# BamlElixir Next
 
-Call BAML functions from Elixir, using a Rust NIF.
+A preview channel for BAML Elixir bindings, following the "VS Code Insiders" model.
 
-## First of all, can this be used in production?
+## What is this?
 
-Well, I use it in production. But it's way too early for you if you expect stable APIs
-and things to not break at all. If you're okay with debugging issues with me when things go wrong,
-please go ahead!
+`baml_elixir_next` is a forward-looking fork of [baml_elixir](https://github.com/emilsoman/baml_elixir) (the official BAML Elixir bindings). Some features are developed here ahead of the mainline library, with the intention of contributing changes back upstream.
+
+**Why it exists:** The core `baml_elixir` library prioritizes stability for production use. `baml_elixir_next` provides a channel for implementing newer BAML features without compromising that stability.
+
+**Upstream goal:** All changes are written to be PR-able back to the official `baml_elixir`. This package will be deprecated when upstream incorporates these features.
+
+## Feature Status
+
+| Feature | Upstream | Next |
+|---------|----------|------|
+| Client Registry | Merged, unreleased | Unreleased |
+| Stream cancellation | Pending upstream | Unreleased |
+
+## Can this be used in production?
+
+Yes, with the understanding that this is a preview channel. APIs may change more frequently than the mainline library. If you're okay with that trade-off for access to newer features, go ahead!
 
 What this library does:
 
@@ -233,15 +246,17 @@ class DynamicEmployee {
 
 ## Installation
 
-Add baml_elixir to your mix.exs:
+Add `baml_elixir_next` to your mix.exs:
 
 ```elixir
 def deps do
   [
-    {:baml_elixir, "~> 1.0.0-pre.24"}
+    {:baml_elixir_next, "~> 1.0.0-pre.24.next"}
   ]
 end
 ```
+
+Note: The module names remain `BamlElixir.*` - only the Hex package name is different.
 
 This also downloads the pre built NIFs for these targets:
 

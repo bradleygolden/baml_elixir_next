@@ -1,12 +1,13 @@
 defmodule BamlElixir.MixProject do
   use Mix.Project
 
-  @version "1.0.0-pre.24"
+  @version "1.0.0-pre.24.next.1"
 
   def project do
     [
       app: :baml_elixir,
-      description: "Call BAML functions from Elixir.",
+      description:
+        "Preview channel for BAML Elixir bindings. Implements features ahead of the mainline baml_elixir library.",
       version: @version,
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
@@ -39,6 +40,7 @@ defmodule BamlElixir.MixProject do
 
   defp package do
     [
+      name: "baml_elixir_next",
       files: [
         "lib",
         "checksum-*.exs",
@@ -46,8 +48,11 @@ defmodule BamlElixir.MixProject do
         "LICENSE"
       ],
       licenses: ["Apache-2.0"],
-      links: %{"GitHub" => "https://github.com/emilsoman/baml_elixir"},
-      maintainers: ["Emil Soman"]
+      links: %{
+        "GitHub" => "https://github.com/bradleygolden/baml_elixir_next",
+        "Upstream" => "https://github.com/emilsoman/baml_elixir"
+      },
+      maintainers: ["Bradley Golden"]
     ]
   end
 end
