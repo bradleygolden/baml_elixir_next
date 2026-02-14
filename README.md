@@ -17,6 +17,7 @@ A preview channel for BAML Elixir bindings, following the "VS Code Insiders" mod
 | Client Registry | [v1.0.0-pre.24](https://github.com/emilsoman/baml_elixir/releases/tag/v1.0.0-pre.24) | [v1.0.0-pre.24.next.1](https://github.com/bradleygolden/baml_elixir_next/releases/tag/v1.0.0-pre.24.next.1) |
 | Stream cancellation | [Pending](https://github.com/emilsoman/baml_elixir/pull/9) | [v1.0.0-pre.24.next.1](https://github.com/bradleygolden/baml_elixir_next/releases/tag/v1.0.0-pre.24.next.1) |
 | Musl/Alpine binaries | [v1.0.0-pre.24](https://github.com/emilsoman/baml_elixir/releases/tag/v1.0.0-pre.24) | [v1.0.0-pre.24.next.1](https://github.com/bradleygolden/baml_elixir_next/releases/tag/v1.0.0-pre.24.next.1) |
+| TypeBuilder nullable unions (`:null` atom) | Pending | [v1.0.0-pre.24.next.2](https://github.com/bradleygolden/baml_elixir_next/releases/tag/v1.0.0-pre.24.next.2) |
 
 ## Can this be used in production?
 
@@ -252,7 +253,7 @@ Add `baml_elixir_next` to your mix.exs:
 ```elixir
 def deps do
   [
-    {:baml_elixir_next, "~> 1.0.0-pre.24.next"}
+    {:baml_elixir_next, "~> 1.0.0-pre.24.next.2"}
   ]
 end
 ```
