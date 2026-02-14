@@ -58,6 +58,9 @@ fn parse_type_builder_item<'a>(
         Some("Elixir.BamlElixir.TypeBuilder.Enum") => {
             parse_enum_item(term, builder)?;
         }
+        Some("Elixir.BamlElixir.TypeBuilder.Union") => {
+            parse_union_item(env, term, builder)?;
+        }
         Some(other) => {
             return Err(Error::Term(Box::new(format!(
                 "Unsupported TypeBuilder struct: {}",
@@ -153,6 +156,58 @@ fn parse_enum_item<'a>(enum_term: Term<'a>, builder: &TypeBuilder) -> Result<(),
         }
     } else {
         return Err(Error::Term(Box::new("Enum values must be a list")));
+    }
+
+    Ok(())
+}
+
+fn parse_union_item<'a>(
+    env: Env<'a>,
+    union_term: Term<'a>,
+    builder: &TypeBuilder,
+) -> Result<(), Error> {
+    if !union_term.is_map() {
+        return Err(Error::Term(Box::new("Union data must be a map")));
+    }
+
+    let iter = MapIterator::new(union_term).ok_or(Error::Term(Box::new("Invalid union map")))?;
+    let mut union_name = None;
+    let mut types_term = None;
+
+    for (key_term, value_term) in iter {
+        let key = term_to_string(key_term)?;
+        match key.as_str() {
+            "name" => {
+                if !value_term.is_atom()
+                    || value_term.decode::<rustler::Atom>()? != rustler::types::atom::nil()
+                {
+                    union_name = Some(term_to_string(value_term)?);
+                }
+            }
+            "types" => {
+                types_term = Some(value_term);
+            }
+            _ => {}
+        }
+    }
+
+    let types_term = types_term.ok_or(Error::Term(Box::new("Union missing types field")))?;
+
+    if !types_term.is_list() {
+        return Err(Error::Term(Box::new("Union types must be a list")));
+    }
+
+    let types_list: Vec<Term> = types_term.decode()?;
+    let mut union_types = Vec::new();
+    for type_term in types_list {
+        let parsed_type = parse_field_type(env, type_term, builder, None, None)?;
+        union_types.push(parsed_type);
+    }
+
+    if let Some(name) = union_name {
+        let alias = builder.upsert_type_alias(&name);
+        let alias = alias.lock().unwrap();
+        alias.target(TypeIR::union(union_types));
     }
 
     Ok(())
@@ -277,6 +332,7 @@ fn parse_field_type<'a>(
             "int" => Ok(TypeIR::int()),
             "float" => Ok(TypeIR::float()),
             "bool" => Ok(TypeIR::bool()),
+            "null" | "nil" => Ok(TypeIR::null()),
             _ => Ok(TypeIR::class(&atom_str)),
         }
     } else if let Ok(string_value) = term.decode::<String>() {
