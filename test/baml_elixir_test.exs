@@ -168,6 +168,136 @@ defmodule BamlElixirTest do
     assert usage["cached_input_tokens"] == 0
   end
 
+  @tag :media
+  test "image input with URL succeeds and appears in request body" do
+    base_url = BamlElixirTest.FakeOpenAIServer.expect_chat_completion("a cute dog photo")
+
+    client_registry = %{
+      primary: "InjectedClient",
+      clients: [
+        %{
+          name: "InjectedClient",
+          provider: "openai-generic",
+          retry_policy: nil,
+          options: %{
+            base_url: base_url,
+            api_key: "test-key",
+            model: "gpt-4o-mini"
+          }
+        }
+      ]
+    }
+
+    collector = BamlElixir.Collector.new("img-url-collector")
+
+    assert {:ok, "a cute dog photo"} =
+             BamlElixirTest.DescribeImage.call(
+               %{myImg: %{url: "https://example.com/image.png"}},
+               %{client_registry: client_registry, collectors: [collector]}
+             )
+
+    messages_json = get_request_messages_json(collector)
+    assert messages_json =~ "https://example.com/image.png"
+  end
+
+  @tag :media
+  test "image input with base64 succeeds and appears in request body" do
+    base_url = BamlElixirTest.FakeOpenAIServer.expect_chat_completion("a cute dog photo")
+
+    client_registry = %{
+      primary: "InjectedClient",
+      clients: [
+        %{
+          name: "InjectedClient",
+          provider: "openai-generic",
+          retry_policy: nil,
+          options: %{
+            base_url: base_url,
+            api_key: "test-key",
+            model: "gpt-4o-mini"
+          }
+        }
+      ]
+    }
+
+    collector = BamlElixir.Collector.new("img-b64-collector")
+    image_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+    assert {:ok, "a cute dog photo"} =
+             BamlElixirTest.DescribeImage.call(
+               %{myImg: %{base64: image_b64, media_type: "image/png"}},
+               %{client_registry: client_registry, collectors: [collector]}
+             )
+
+    messages_json = get_request_messages_json(collector)
+    assert messages_json =~ image_b64
+  end
+
+  @tag :media
+  test "PDF input with URL succeeds and appears in request body" do
+    base_url = BamlElixirTest.FakeOpenAIServer.expect_chat_completion("a sample document")
+
+    client_registry = %{
+      primary: "InjectedClient",
+      clients: [
+        %{
+          name: "InjectedClient",
+          provider: "openai-generic",
+          retry_policy: nil,
+          options: %{
+            base_url: base_url,
+            api_key: "test-key",
+            model: "gpt-4o-mini"
+          }
+        }
+      ]
+    }
+
+    collector = BamlElixir.Collector.new("pdf-url-collector")
+
+    assert {:ok, "a sample document"} =
+             BamlElixirTest.DescribePdf.call(
+               %{myPdf: %{url: "https://example.com/doc.pdf"}},
+               %{client_registry: client_registry, collectors: [collector]}
+             )
+
+    messages_json = get_request_messages_json(collector)
+    assert messages_json =~ "https://example.com/doc.pdf"
+  end
+
+  @tag :media
+  test "PDF input with base64 succeeds and appears in request body" do
+    base_url = BamlElixirTest.FakeOpenAIServer.expect_chat_completion("a sample document")
+
+    client_registry = %{
+      primary: "InjectedClient",
+      clients: [
+        %{
+          name: "InjectedClient",
+          provider: "openai-generic",
+          retry_policy: nil,
+          options: %{
+            base_url: base_url,
+            api_key: "test-key",
+            model: "gpt-4o-mini"
+          }
+        }
+      ]
+    }
+
+    collector = BamlElixir.Collector.new("pdf-b64-collector")
+    pdf_b64 = "JVBERi0xLjA="
+
+    assert {:ok, "a sample document"} =
+             BamlElixirTest.DescribePdf.call(
+               %{myPdf: %{base64: pdf_b64, media_type: "application/pdf"}},
+               %{client_registry: client_registry, collectors: [collector]}
+             )
+
+    messages_json = get_request_messages_json(collector)
+    assert messages_json =~ pdf_b64
+  end
+
   test "parses into a struct" do
     assert {:ok, %BamlElixirTest.Person{name: "John Doe", age: 28}} =
              BamlElixirTest.ExtractPerson.call(%{info: "John Doe, 28, Engineer"})
@@ -559,6 +689,19 @@ defmodule BamlElixirTest do
         ]
       }
     ]
+  end
+
+  defp get_request_messages_json(collector) do
+    last_log = BamlElixir.Collector.last_function_log(collector)
+
+    request_body =
+      last_log["calls"]
+      |> Enum.at(0)
+      |> Map.get("request")
+      |> Map.get("body")
+      |> Jason.decode!()
+
+    Jason.encode!(request_body["messages"])
   end
 
   defp wait_for_all_messages(messages \\ []) do

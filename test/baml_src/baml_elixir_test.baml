@@ -124,6 +124,15 @@ function ParseAttendees(attendees: string) -> Attendees {
   "#
 }
 
+function DescribePdf(myPdf: pdf) -> string {
+  client GPT4
+  prompt #"
+    {{ _.role("user")}}
+    Describe the PDF contents in four words:
+    {{ myPdf }}
+  "#
+}
+
 function FlipSwitch(switch: bool) -> bool {
   client GPT4
   prompt #"

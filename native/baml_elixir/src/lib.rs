@@ -209,9 +209,43 @@ fn baml_value_to_term<'a>(env: Env<'a>, value: &BamlValue) -> NifResult<Term<'a>
             }
             Ok(result_map)
         }
-        BamlValue::Media(_media) => {
-            // For now, return an error since we need to check the actual BamlMedia structure
-            Err(Error::Term(Box::new("Media type not yet supported")))
+        // Note: BAML currently does not support media as function return types — the output
+        // format serializer and the output deserializer both reject media types. This arm is
+        // implemented defensively for completeness in case future BAML versions add support.
+        BamlValue::Media(media) => {
+            let mut result_map = Term::map_new(env);
+
+            match &media.content {
+                baml_types::BamlMediaContent::Url(url_content) => {
+                    let url_atom = rustler::Atom::from_str(env, "url")
+                        .map_err(|_| Error::Term(Box::new("Failed to create url atom")))?;
+                    result_map = result_map
+                        .map_put(url_atom.encode(env), url_content.url.encode(env))
+                        .map_err(|_| Error::Term(Box::new("Failed to add url to map")))?;
+                }
+                baml_types::BamlMediaContent::Base64(base64_content) => {
+                    let base64_atom = rustler::Atom::from_str(env, "base64")
+                        .map_err(|_| Error::Term(Box::new("Failed to create base64 atom")))?;
+                    result_map = result_map
+                        .map_put(base64_atom.encode(env), base64_content.base64.encode(env))
+                        .map_err(|_| Error::Term(Box::new("Failed to add base64 to map")))?;
+                }
+                baml_types::BamlMediaContent::File(_) => {
+                    return Err(Error::Term(Box::new(
+                        "File-based media output is not yet supported in the Elixir NIF",
+                    )));
+                }
+            }
+
+            if let Some(ref mime_type) = media.mime_type {
+                let media_type_atom = rustler::Atom::from_str(env, "media_type")
+                    .map_err(|_| Error::Term(Box::new("Failed to create media_type atom")))?;
+                result_map = result_map
+                    .map_put(media_type_atom.encode(env), mime_type.encode(env))
+                    .map_err(|_| Error::Term(Box::new("Failed to add media_type to map")))?;
+            }
+
+            Ok(result_map)
         }
         BamlValue::Enum(enum_type, variant) => {
             // Convert enum to a map with __baml_enum__ and value
